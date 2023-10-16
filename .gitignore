@@ -1,0 +1,6 @@
+**/*.wav
+**/*.pt
+**/__pycache__
+**/.vscode
+**/model
+**/*.json
