@@ -124,16 +124,7 @@ def parse_args(args=None, namespace=None):
         default='dpm-solver',
         help="ddim, pndm, dpm-solver or unipc | default: dpm-solver",
     )
-    parser.add_argument(
-        "-kstep",
-        "--k_step",
-        type=str,
-        required=False,
-        default=None,
-        help="shallow diffusion steps | default: None",
-    )
     return parser.parse_args(args=args, namespace=namespace)
-
 
 if __name__ == '__main__':
     cmd = parse_args()
@@ -160,7 +151,6 @@ if __name__ == '__main__':
         aug_shift=int(cmd.formant_shift_key),
         infer_speedup=int(cmd.speedup),
         method=cmd.method,
-        k_step=cmd.k_step,
         use_tqdm=True,
         threhold=float(cmd.threhold),
         threhold_for_split=float(cmd.threhold_for_split),

@@ -5,5 +5,5 @@
 
 ## Offline Inference
 ```bash
-python main.py -i 我多想说再见啊_Cut.wav -ref baki_5568.wav -model model_535000.pt -o 222.wav -k 0 -speedup 5 -method unipc -pe fcpe
+python main.py -i 【原创角色曲】《Spade》~黑桃影2020生日纪念~♠.wav -ref 塔菲.wav -model model_650000.pt -o 222.wav -k 0 -speedup 5 -method unipc -pe fcpe
 ```

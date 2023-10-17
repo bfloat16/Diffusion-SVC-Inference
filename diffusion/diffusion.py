@@ -2,48 +2,34 @@ from collections import deque
 from functools import partial
 from inspect import isfunction
 import torch.nn.functional as F
-import librosa.sequence
 import numpy as np
 import torch
 from torch import nn
 from tqdm import tqdm
 
-
 def exists(x):
     return x is not None
-
 
 def default(val, d):
     if exists(val):
         return val
     return d() if isfunction(d) else d
 
-
 def extract(a, t, x_shape):
     b, *_ = t.shape
     out = a.gather(-1, t)
     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
-
 
 def noise_like(shape, device, repeat=False):
     repeat_noise = lambda: torch.randn((1, *shape[1:]), device=device).repeat(shape[0], *((1,) * (len(shape) - 1)))
     noise = lambda: torch.randn(shape, device=device)
     return repeat_noise() if repeat else noise()
 
-
 def linear_beta_schedule(timesteps, max_beta=0.02):
-    """
-    linear schedule
-    """
     betas = np.linspace(1e-4, max_beta, timesteps)
     return betas
 
-
 def cosine_beta_schedule(timesteps, s=0.008):
-    """
-    cosine schedule
-    as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
-    """
     steps = timesteps + 1
     x = np.linspace(0, steps, steps)
     alphas_cumprod = np.cos(((x / steps) + s) / (1 + s) * np.pi * 0.5) ** 2
@@ -51,12 +37,10 @@ def cosine_beta_schedule(timesteps, s=0.008):
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
     return np.clip(betas, a_min=0, a_max=0.999)
 
-
 beta_schedule = {
     "cosine": cosine_beta_schedule,
     "linear": linear_beta_schedule,
 }
-
 
 class GaussianDiffusion(nn.Module):
     def __init__(self, 
@@ -87,25 +71,18 @@ class GaussianDiffusion(nn.Module):
         self.register_buffer('betas', to_torch(betas))
         self.register_buffer('alphas_cumprod', to_torch(alphas_cumprod))
         self.register_buffer('alphas_cumprod_prev', to_torch(alphas_cumprod_prev))
-
-        # calculations for diffusion q(x_t | x_{t-1}) and others
         self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod)))
         self.register_buffer('sqrt_one_minus_alphas_cumprod', to_torch(np.sqrt(1. - alphas_cumprod)))
         self.register_buffer('log_one_minus_alphas_cumprod', to_torch(np.log(1. - alphas_cumprod)))
         self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod)))
         self.register_buffer('sqrt_recipm1_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod - 1)))
 
-        # calculations for posterior q(x_{t-1} | x_t, x_0)
         posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
-        # above: equal to 1. / (1. / (1. - alpha_cumprod_tm1) + alpha_t / beta_t)
-        self.register_buffer('posterior_variance', to_torch(posterior_variance))
-        # below: log calculation clipped because the posterior variance is 0 at the beginning of the diffusion chain
-        self.register_buffer('posterior_log_variance_clipped', to_torch(np.log(np.maximum(posterior_variance, 1e-20))))
-        self.register_buffer('posterior_mean_coef1', to_torch(
-            betas * np.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod)))
-        self.register_buffer('posterior_mean_coef2', to_torch(
-            (1. - alphas_cumprod_prev) * np.sqrt(alphas) / (1. - alphas_cumprod)))
 
+        self.register_buffer('posterior_variance', to_torch(posterior_variance))
+        self.register_buffer('posterior_log_variance_clipped', to_torch(np.log(np.maximum(posterior_variance, 1e-20))))
+        self.register_buffer('posterior_mean_coef1', to_torch(betas * np.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod)))
+        self.register_buffer('posterior_mean_coef2', to_torch((1. - alphas_cumprod_prev) * np.sqrt(alphas) / (1. - alphas_cumprod)))
         self.register_buffer('spec_min', torch.FloatTensor([spec_min])[None, None, :out_dims])
         self.register_buffer('spec_max', torch.FloatTensor([spec_max])[None, None, :out_dims])
 
@@ -134,9 +111,7 @@ class GaussianDiffusion(nn.Module):
         denoise_input = torch.cat([x[:,0,:,:], cond], dim=-2)
         noise_pred = self.denoise_fn(denoise_input, t, reference_mel).sample[:,None,:,:]
         x_recon = self.predict_start_from_noise(x, t=t, noise=noise_pred)
-
         x_recon.clamp_(-1., 1.)
-
         model_mean, posterior_variance, posterior_log_variance = self.q_posterior(x_start=x_recon, x_t=x, t=t)
         return model_mean, posterior_variance, posterior_log_variance
 
@@ -145,7 +120,6 @@ class GaussianDiffusion(nn.Module):
         b, *_, device = *x.shape, x.device
         model_mean, _, model_log_variance = self.p_mean_variance(x=x, t=t, cond=cond,reference_mel=reference_mel)
         noise = noise_like(x.shape, device, repeat_noise)
-        # no noise when t == 0
         nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
     
@@ -153,7 +127,6 @@ class GaussianDiffusion(nn.Module):
     def p_sample_ddim(self, x, t, interval, cond, reference_mel=None):
         a_t = extract(self.alphas_cumprod, t, x.shape)
         a_prev = extract(self.alphas_cumprod, torch.max(t - interval, torch.zeros_like(t)), x.shape)
-        
         denoise_input = torch.cat([x[:,0,:,:], cond], dim=-2)
         noise_pred = self.denoise_fn(denoise_input, t, reference_mel).sample[:,None,:,:]
         x_prev = a_prev.sqrt() * (x / a_t.sqrt() + (((1 - a_prev) / a_prev).sqrt()-((1 - a_t) / a_t).sqrt()) * noise_pred)
@@ -161,20 +134,12 @@ class GaussianDiffusion(nn.Module):
         
     @torch.no_grad()
     def p_sample_plms(self, x, t, interval, cond, reference_mel=None, clip_denoised=True, repeat_noise=False):
-        """
-        Use the PLMS method from
-        [Pseudo Numerical Methods for Diffusion Models on Manifolds](https://arxiv.org/abs/2202.09778).
-        """
-
         def get_x_pred(x, noise_t, t):
             a_t = extract(self.alphas_cumprod, t, x.shape)
             a_prev = extract(self.alphas_cumprod, torch.max(t - interval, torch.zeros_like(t)), x.shape)
             a_t_sq, a_prev_sq = a_t.sqrt(), a_prev.sqrt()
-
-            x_delta = (a_prev - a_t) * ((1 / (a_t_sq * (a_t_sq + a_prev_sq))) * x - 1 / (
-                    a_t_sq * (((1 - a_prev) * a_t).sqrt() + ((1 - a_t) * a_prev).sqrt())) * noise_t)
+            x_delta = (a_prev - a_t) * ((1 / (a_t_sq * (a_t_sq + a_prev_sq))) * x - 1 / (a_t_sq * (((1 - a_prev) * a_t).sqrt() + ((1 - a_t) * a_prev).sqrt())) * noise_t)
             x_pred = x + x_delta
-
             return x_pred
         
         denoise_input = torch.cat([x[:,0,:,:], cond], dim=-2)
@@ -184,7 +149,6 @@ class GaussianDiffusion(nn.Module):
 
         if len(noise_list) == 0:
             x_pred = get_x_pred(x, noise_pred, t)
-            
             denoise_input = torch.cat([x_pred[:,0,:,:], cond], dim=-2)
             noise_pred_prev = self.denoise_fn(denoise_input, max(t - interval, 0), reference_mel).sample[:,None,:,:]
             noise_pred_prime = (noise_pred + noise_pred_prev) / 2
@@ -232,9 +196,6 @@ class GaussianDiffusion(nn.Module):
                 method='dpm-solver',
                 k_step=None,
                 use_tqdm=True):
-        """
-            conditioning diffusion, use fastspeech2 encoder output as the condition
-        """
         cond = condition.transpose(1, 2)
         b, device = condition.shape[0], condition.device
 
@@ -262,12 +223,7 @@ class GaussianDiffusion(nn.Module):
             if method is not None and infer_speedup > 1:
                 if method == 'dpm-solver':
                     from .dpm_solver_pytorch import NoiseScheduleVP, model_wrapper, DPM_Solver
-                    # 1. Define the noise schedule.
                     noise_schedule = NoiseScheduleVP(schedule='discrete', betas=self.betas[:t])
-
-                    # 2. Convert your discrete-time `model` to the continuous-time
-                    # noise prediction model. Here is an example for a diffusion model
-                    # `model` with the noise prediction type ("noise") .
                     def my_wrapper(fn):
                         def wrapped(x, t, cond, **kwargs):
                             denoise_input = torch.cat([x[:,0,:,:], cond], dim=-2)
@@ -280,14 +236,10 @@ class GaussianDiffusion(nn.Module):
                     model_fn = model_wrapper(
                         my_wrapper(self.denoise_fn),
                         noise_schedule,
-                        model_type="noise",  # or "x_start" or "v" or "score"
+                        model_type="noise",
                         model_kwargs={"cond": cond,"encoder_hidden_states":reference_mel}
                     )
 
-                    # 3. Define dpm-solver and sample by singlestep DPM-Solver.
-                    # (We recommend singlestep DPM-Solver for unconditional sampling)
-                    # You can adjust the `steps` to balance the computation
-                    # costs and the sample quality.
                     dpm_solver = DPM_Solver(model_fn, noise_schedule, algorithm_type="dpmsolver++")
 
                     steps = t // infer_speedup
@@ -305,12 +257,7 @@ class GaussianDiffusion(nn.Module):
                         self.bar.close()
                 elif method == 'unipc':
                     from .uni_pc import NoiseScheduleVP, model_wrapper, UniPC
-                    # 1. Define the noise schedule.
                     noise_schedule = NoiseScheduleVP(schedule='discrete', betas=self.betas[:t])
-
-                    # 2. Convert your discrete-time `model` to the continuous-time
-                    # noise prediction model. Here is an example for a diffusion model
-                    # `model` with the noise prediction type ("noise") .
                     def my_wrapper(fn):
                         def wrapped(x, t, cond, **kwargs):
                             denoise_input = torch.cat([x[:,0,:,:], cond], dim=-2)
@@ -323,13 +270,10 @@ class GaussianDiffusion(nn.Module):
                     model_fn = model_wrapper(
                         my_wrapper(self.denoise_fn),
                         noise_schedule,
-                        model_type="noise",  # or "x_start" or "v" or "score"
+                        model_type="noise",
                         model_kwargs={"cond": cond,"encoder_hidden_states":reference_mel}
                     )
 
-                    # 3. Define uni_pc and sample by multistep UniPC.
-                    # You can adjust the `steps` to balance the computation
-                    # costs and the sample quality.
                     uni_pc = UniPC(model_fn, noise_schedule, variant='bh2')
 
                     steps = t // infer_speedup
@@ -387,7 +331,7 @@ class GaussianDiffusion(nn.Module):
                 else:
                     for i in reversed(range(0, t)):
                         x = self.p_sample(x, torch.full((b,), i, device=device, dtype=torch.long), cond, reference_mel=reference_mel)
-            x = x.squeeze(1).transpose(1, 2)  # [B, T, M]
+            x = x.squeeze(1).transpose(1, 2)
             return self.denorm_spec(x)
 
     def norm_spec(self, x):

@@ -37,7 +37,6 @@ class DiffusionSVC:
             self.args.data.encoder_ckpt,
             self.args.data.encoder_sample_rate,
             self.args.data.encoder_hop_size,
-            cnhubertsoft_gate=self.args.data.cnhubertsoft_gate,
             device=self.device,
             units_forced_mode=self.args.data.units_forced_mode
         )

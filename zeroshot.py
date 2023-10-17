@@ -1,0 +1,70 @@
+import torch
+import os
+import gradio as gr
+import librosa
+import soundfile as sf
+import datetime
+from tools.infer_tools import DiffusionSVC
+
+def generate_filename(input_wav, type):
+   now = datetime.datetime.now()
+   time = now.strftime("%Y_%m_%d_%H_%M_%S")
+   file_name = os.path.basename(input_wav).split('.')[0]
+   if type=='ref':
+      output_file_name = f'{time}' + "_ref_" + f'{file_name}' + ".mp3"
+   else:
+      output_file_name = f'{time}' + "_out_" + f'{file_name}' + ".mp3"
+   output_file_path = os.path.join("results", output_file_name)
+   return output_file_path
+   
+def inference(input_wav, reference_wav, key, threhold, speedup, menthod):
+      if input_wav == None or reference_wav == None:
+         raise gr.Error("未输入音频")
+      
+      in_wav, in_sr = librosa.load(input_wav, sr=None)
+      in_refer, in_rsr = librosa.load(reference_wav, sr=None)
+
+      if int(len(in_wav)) <= int(in_sr * 180):
+         in_wav = librosa.to_mono(in_wav)
+      else:
+         raise gr.Error("输入音频长度不能超过3分钟")
+      
+      if int(len(in_refer)) > int(in_sr * 30):
+         raise gr.Error("参考音频长度不能超过30秒")
+
+      out_wav, out_sr = diffusion_svc.infer_from_long_audio(in_wav, sr=(in_sr, in_rsr), key=float(key), refer_audio=str(reference_wav), aug_shift=0, infer_speedup=int(speedup), method=menthod, use_tqdm=True, threhold=-60,
+                                                            threhold_for_split=float(threhold), min_len=5000)
+
+      output_wav_path = generate_filename(input_wav, 'out')
+      reference_wav_path = generate_filename(reference_wav, 'ref')
+    
+      sf.write(output_wav_path, out_wav, out_sr, format='mp3')
+      sf.write(reference_wav_path, in_refer, out_sr, format='mp3')
+      return output_wav_path
+
+def main_ui():
+   with gr.Blocks(theme=gr.themes.Base(primary_hue=gr.themes.colors.purple)) as ui:
+      gr.Markdown('# Diffusion-SVC&nbsp;&nbsp;&nbsp;♬ヽ(*・ω・)ﾉ&nbsp;&nbsp;&nbsp;𝒁𝒆𝒓𝒐𝒔𝒉𝒐𝒕-Inference')
+      with gr.Row():
+         input_wav = gr.Audio(type='filepath', label='推理音频', source='upload')
+         reference_wav = gr.Audio(type='filepath', label='参考音频', source='upload')
+      with gr.Column():
+         with gr.Row():
+            key = gr.Slider(minimum=-12, maximum=12, step=1, value=0, label='变调', interactive=True)
+            threhold = gr.Slider(minimum=-50, maximum=-30, step=1, value=-40, label='切片阈值', interactive=True)
+         speedup = gr.Slider(minimum=10, maximum=100, step=1, value=10, label='加速倍数', interactive=True)
+         with gr.Row():
+            f0_extractor = gr.Dropdown(choices=['fcpe', 'rmvpe', 'parselmouth', 'harvest'], value='fcpe', label='音高提取器', interactive=False)
+            menthod = gr.Dropdown(choices=['unipc', 'dpm-solver','ddim'], value='unipc', label='采样方法', interactive=True)
+      out_wav = gr.Audio(label='输出音频', format='mp3',interactive=False)
+      submit = gr.Button(value='开始推理', variant="primary")
+
+      submit.click(fn=inference,inputs=[input_wav, reference_wav, key, threhold, speedup, menthod], outputs=out_wav)
+   ui.queue(status_update_rate=10, max_size=5)
+   ui.launch(server_name='0.0.0.0', server_port=2333, share=False)
+
+if __name__ == "__main__":
+   device = 'cuda' if torch.cuda.is_available() else 'cpu'
+   diffusion_svc = DiffusionSVC(device=device)
+   diffusion_svc.load_model(model_path='model_860000.pt', f0_model='fcpe', f0_max=1100, f0_min=50)
+   main_ui()

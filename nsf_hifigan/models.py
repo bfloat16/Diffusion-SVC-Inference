@@ -101,21 +101,6 @@ class ResBlock2(torch.nn.Module):
 
 
 class SineGen(torch.nn.Module):
-    """ Definition of sine generator
-    SineGen(samp_rate, harmonic_num = 0,
-            sine_amp = 0.1, noise_std = 0.003,
-            voiced_threshold = 0,
-            flag_for_pulse=False)
-    samp_rate: sampling rate in Hz
-    harmonic_num: number of harmonic overtones (default 0)
-    sine_amp: amplitude of sine-wavefrom (default 0.1)
-    noise_std: std of Gaussian noise (default 0.003)
-    voiced_thoreshold: F0 threshold for U/V classification (default 0)
-    flag_for_pulse: this SinGen is used inside PulseGen (default False)
-    Note: when flag_for_pulse is True, the first time step of a voiced
-        segment is always sin(np.pi) or cos(0)
-    """
-
     def __init__(self, samp_rate, harmonic_num=0,
                  sine_amp=0.1, noise_std=0.003,
                  voiced_threshold=0):
@@ -128,27 +113,20 @@ class SineGen(torch.nn.Module):
         self.voiced_threshold = voiced_threshold
 
     def _f02uv(self, f0):
-        # generate uv signal
         uv = torch.ones_like(f0)
         uv = uv * (f0 > self.voiced_threshold)
         return uv
 
     @torch.no_grad()
     def forward(self, f0, upp):
-        """ sine_tensor, uv = forward(f0)
-        input F0: tensor(batchsize=1, length, dim=1)
-                  f0 for unvoiced steps should be 0
-        output sine_tensor: tensor(batchsize=1, length, dim)
-        output uv: tensor(batchsize=1, length, 1)
-        """
         f0 = f0.unsqueeze(-1)
         fn = torch.multiply(f0, torch.arange(1, self.dim + 1, device=f0.device).reshape((1, 1, -1)))
-        rad_values = (fn / self.sampling_rate) % 1  ###%1意味着n_har的乘积无法后处理优化
+        rad_values = (fn / self.sampling_rate) % 1
         rand_ini = torch.rand(fn.shape[0], fn.shape[2], device=fn.device)
         rand_ini[:, 0] = 0
         rad_values[:, 0, :] = rad_values[:, 0, :] + rand_ini
         is_half = rad_values.dtype is not torch.float32
-        tmp_over_one = torch.cumsum(rad_values.double(), 1)  # % 1  #####%1意味着后面的cumsum无法再优化
+        tmp_over_one = torch.cumsum(rad_values.double(), 1)
         if is_half:
             tmp_over_one = tmp_over_one.half()
         else:
@@ -173,37 +151,13 @@ class SineGen(torch.nn.Module):
         sine_waves = sine_waves * self.sine_amp
         return sine_waves
 
-
 class SourceModuleHnNSF(torch.nn.Module):
-    """ SourceModule for hn-nsf
-    SourceModule(sampling_rate, harmonic_num=0, sine_amp=0.1,
-                 add_noise_std=0.003, voiced_threshod=0)
-    sampling_rate: sampling_rate in Hz
-    harmonic_num: number of harmonic above F0 (default: 0)
-    sine_amp: amplitude of sine source signal (default: 0.1)
-    add_noise_std: std of additive Gaussian noise (default: 0.003)
-        note that amplitude of noise in unvoiced is decided
-        by sine_amp
-    voiced_threshold: threhold to set U/V given F0 (default: 0)
-    Sine_source, noise_source = SourceModuleHnNSF(F0_sampled)
-    F0_sampled (batchsize, length, 1)
-    Sine_source (batchsize, length, 1)
-    noise_source (batchsize, length 1)
-    uv (batchsize, length, 1)
-    """
-
-    def __init__(self, sampling_rate, harmonic_num=0, sine_amp=0.1,
-                 add_noise_std=0.003, voiced_threshod=0):
+    def __init__(self, sampling_rate, harmonic_num=0, sine_amp=0.1, add_noise_std=0.003, voiced_threshod=0):
         super(SourceModuleHnNSF, self).__init__()
 
         self.sine_amp = sine_amp
         self.noise_std = add_noise_std
-
-        # to produce sine waveforms
-        self.l_sin_gen = SineGen(sampling_rate, harmonic_num,
-                                 sine_amp, add_noise_std, voiced_threshod)
-
-        # to merge source harmonics into a single excitation
+        self.l_sin_gen = SineGen(sampling_rate, harmonic_num, sine_amp, add_noise_std, voiced_threshod)
         self.l_linear = torch.nn.Linear(harmonic_num + 1, 1)
         self.l_tanh = torch.nn.Tanh()
 
@@ -212,17 +166,13 @@ class SourceModuleHnNSF(torch.nn.Module):
         sine_merge = self.l_tanh(self.l_linear(sine_wavs))
         return sine_merge
 
-
 class Generator(torch.nn.Module):
     def __init__(self, h):
         super(Generator, self).__init__()
         self.h = h
         self.num_kernels = len(h.resblock_kernel_sizes)
         self.num_upsamples = len(h.upsample_rates)
-        self.m_source = SourceModuleHnNSF(
-            sampling_rate=h.sampling_rate,
-            harmonic_num=8
-        )
+        self.m_source = SourceModuleHnNSF(sampling_rate=h.sampling_rate, harmonic_num=8)
         self.noise_convs = nn.ModuleList()
         self.conv_pre = weight_norm(Conv1d(h.num_mels, h.upsample_initial_channel, 7, 1, padding=3))
         resblock = ResBlock1 if h.resblock == '1' else ResBlock2
@@ -230,13 +180,10 @@ class Generator(torch.nn.Module):
         self.ups = nn.ModuleList()
         for i, (u, k) in enumerate(zip(h.upsample_rates, h.upsample_kernel_sizes)):
             c_cur = h.upsample_initial_channel // (2 ** (i + 1))
-            self.ups.append(weight_norm(
-                ConvTranspose1d(h.upsample_initial_channel // (2 ** i), h.upsample_initial_channel // (2 ** (i + 1)),
-                                k, u, padding=(k - u) // 2)))
-            if i + 1 < len(h.upsample_rates):  #
+            self.ups.append(weight_norm(ConvTranspose1d(h.upsample_initial_channel // (2 ** i), h.upsample_initial_channel // (2 ** (i + 1)), k, u, padding=(k - u) // 2)))
+            if i + 1 < len(h.upsample_rates):
                 stride_f0 = int(np.prod(h.upsample_rates[i + 1:]))
-                self.noise_convs.append(Conv1d(
-                    1, c_cur, kernel_size=stride_f0 * 2, stride=stride_f0, padding=stride_f0 // 2))
+                self.noise_convs.append(Conv1d(1, c_cur, kernel_size=stride_f0 * 2, stride=stride_f0, padding=stride_f0 // 2))
             else:
                 self.noise_convs.append(Conv1d(1, c_cur, kernel_size=1))
         self.resblocks = nn.ModuleList()
