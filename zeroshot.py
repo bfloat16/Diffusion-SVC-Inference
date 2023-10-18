@@ -66,5 +66,5 @@ def main_ui():
 if __name__ == "__main__":
    device = 'cuda' if torch.cuda.is_available() else 'cpu'
    diffusion_svc = DiffusionSVC(device=device)
-   diffusion_svc.load_model(model_path='model_860000.pt', f0_model='fcpe', f0_max=1100, f0_min=50)
+   diffusion_svc.load_model(model_path='model_100000.pt', f0_model='fcpe', f0_max=1100, f0_min=50)
    main_ui()
