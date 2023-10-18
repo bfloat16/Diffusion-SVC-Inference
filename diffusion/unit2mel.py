@@ -3,12 +3,8 @@ import yaml
 import torch
 import torch.nn as nn
 import numpy as np
-import torch.nn.functional as F
-from torch.nn.utils import weight_norm
 from .diffusion import GaussianDiffusion
-from .wavenet import WaveNet
 from .vocoder import Vocoder
-from .naive.naive import Unit2MelNaive
 
 
 class DotDict(dict):

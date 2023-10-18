@@ -1,4 +1,3 @@
-import torch
 from torch import nn
 from .deepunet import DeepUnet, DeepUnet0
 from .constants import *
