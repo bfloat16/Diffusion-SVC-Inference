@@ -10,7 +10,7 @@ def generate_filename(input_wav, type):
    now = datetime.datetime.now()
    time = now.strftime("%Y_%m_%d_%H_%M_%S")
    file_name = os.path.basename(input_wav).split('.')[0]
-   if type=='ref':
+   if type == 'ref':
       output_file_name = f'{time}' + "_ref_" + f'{file_name}' + ".mp3"
    else:
       output_file_name = f'{time}' + "_out_" + f'{file_name}' + ".mp3"
@@ -32,8 +32,8 @@ def inference(input_wav, reference_wav, key, threhold, speedup, menthod):
       if int(len(in_refer)) > int(in_sr * 30):
          raise gr.Error("参考音频长度不能超过30秒")
 
-      out_wav, out_sr = diffusion_svc.infer_from_long_audio(in_wav, sr=(in_sr, in_rsr), key=float(key), refer_audio=str(reference_wav), aug_shift=0, infer_speedup=int(speedup), method=menthod, use_tqdm=True, threhold=-60,
-                                                            threhold_for_split=float(threhold), min_len=5000)
+      out_wav, out_sr = diffusion_svc.infer_from_long_audio(in_wav, sr=(in_sr, in_rsr), key=float(key), refer_audio=str(reference_wav), aug_shift=0, infer_speedup=int(speedup), 
+                                                            method=menthod, use_tqdm=True, threhold=-60, threhold_for_split=float(threhold), min_len=5000)
 
       output_wav_path = generate_filename(input_wav, 'out')
       reference_wav_path = generate_filename(reference_wav, 'ref')
@@ -44,7 +44,7 @@ def inference(input_wav, reference_wav, key, threhold, speedup, menthod):
 
 def main_ui():
    with gr.Blocks(theme=gr.themes.Base(primary_hue=gr.themes.colors.purple)) as ui:
-      gr.Markdown('# Diffusion-SVC&nbsp;&nbsp;&nbsp;♬ヽ(*・ω・)ﾉ&nbsp;&nbsp;&nbsp;𝒁𝒆𝒓𝒐𝒔𝒉𝒐𝒕-Inference')
+      gr.Markdown('# Diffusion-SVC&nbsp;&nbsp;&nbsp;♬ヽ(*・ω・)ﾉ&nbsp;&nbsp;&nbsp;&nbsp;𝒁𝒆𝒓𝒐𝒔𝒉𝒐𝒕-Inference')
       with gr.Row():
          input_wav = gr.Audio(type='filepath', label='推理音频', source='upload')
          reference_wav = gr.Audio(type='filepath', label='参考音频', source='upload')
