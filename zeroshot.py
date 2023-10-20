@@ -4,6 +4,8 @@ import gradio as gr
 import librosa
 import soundfile as sf
 import datetime
+from modelscope.pipelines import pipeline
+from modelscope.utils.constant import Tasks
 from tools.infer_tools import DiffusionSVC
 
 def generate_filename(input_wav, type):
@@ -19,6 +21,11 @@ def generate_filename(input_wav, type):
 
    output_file_path = os.path.join("results", output_file_name)
    return output_file_path
+
+def asr(in_wav):
+   inference_pipeline = pipeline(task=Tasks.auto_speech_recognition, model='damo/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch', model_revision="v1.2.4")
+   rec_result = inference_pipeline(audio_in=in_wav)
+   return rec_result
    
 def inference(input_wav, reference_wav, key, threhold, speedup, menthod):
       if input_wav == None or reference_wav == None:
@@ -34,6 +41,9 @@ def inference(input_wav, reference_wav, key, threhold, speedup, menthod):
       
       if int(len(in_refer)) > int(in_sr * 30):
          raise gr.Error("参考音频长度不能超过30秒")
+      
+      rec_result = asr(in_wav)
+      print(rec_result)
 
       out_wav, out_sr = diffusion_svc.infer_from_long_audio(in_wav, sr=(in_sr, in_rsr), key=float(key), refer_audio=str(reference_wav), aug_shift=0, infer_speedup=int(speedup), 
                                                             method=menthod, use_tqdm=True, threhold=-60, threhold_for_split=float(threhold), min_len=5000)
@@ -72,5 +82,5 @@ def main_ui():
 if __name__ == "__main__":
    device = 'cuda' if torch.cuda.is_available() else 'cpu'
    diffusion_svc = DiffusionSVC(device=device)
-   diffusion_svc.load_model(model_path='model_450000.pt', f0_model='fcpe', f0_max=1100, f0_min=50)
+   diffusion_svc.load_model(model_path='model_100000.pt', f0_model='fcpe', f0_max=1100, f0_min=50)
    main_ui()

@@ -2,12 +2,8 @@ import os
 import yaml
 import torch
 import torch.nn as nn
-import numpy as np
-import torch.nn.functional as F
-from torch.nn.utils import weight_norm
 from .diffusion import GaussianDiffusion
 from .vocoder import Vocoder
-from .naive.naive import Unit2MelNaive
 from .unet1d.unet_1d_condition import UNet1DConditionModel
 from .mrte_model import MRTE
 class DotDict(dict):
@@ -49,7 +45,6 @@ def load_model_vocoder_from_combo(combo_model_path, device='cpu'):
     read_dict = torch.load(combo_model_path, map_location=torch.device(device))
     # args
     diff_args = DotDict(read_dict["diff_config_dict"])
-    naive_args = DotDict(read_dict["naive_config_dict"])
     # vocoder
     vocoder = Vocoder(diff_args.vocoder.type, diff_args.vocoder.ckpt, device=device)
 
@@ -59,13 +54,6 @@ def load_model_vocoder_from_combo(combo_model_path, device='cpu'):
     diff_model.to(device)
     diff_model.load_state_dict(read_dict["diff_model"]['model'])
     diff_model.eval()
-
-    # naive_model
-    naive_model = load_svc_model(args=naive_args, vocoder_dimension=vocoder.dimension)
-    naive_model.to(device)
-    naive_model.load_state_dict(read_dict["naive_model"]['model'])
-    naive_model.eval()
-    return diff_model, diff_args, naive_model, naive_args, vocoder
 
 
 def load_svc_model(args, vocoder_dimension):
@@ -81,30 +69,6 @@ def load_svc_model(args, vocoder_dimension):
                     mrte_layer=args.model.mrte_layer,
                     mrte_hident_size=args.model.mrte_hident_size
                     )
-
-    elif args.model.type == 'Naive':
-        model = Unit2MelNaive(
-                args.data.encoder_out_channels,
-                args.model.n_spk,
-                args.model.use_pitch_aug,
-                vocoder_dimension,
-                args.model.n_layers,
-                args.model.n_chans,
-                use_speaker_encoder=args.model.use_speaker_encoder,
-                speaker_encoder_out_channels=args.data.speaker_encoder_out_channels)
-
-    elif args.model.type == 'NaiveFS':
-        model = Unit2MelNaive(
-            args.data.encoder_out_channels,
-            args.model.n_spk,
-            args.model.use_pitch_aug,
-            vocoder_dimension,
-            args.model.n_layers,
-            args.model.n_chans,
-            use_speaker_encoder=args.model.use_speaker_encoder,
-            speaker_encoder_out_channels=args.data.speaker_encoder_out_channels,
-            use_full_siren=True,
-            l2reg_loss=args.model.l2_reg_loss)
     else:
         raise ("Unknow model")
     return model
@@ -146,12 +110,12 @@ class Unit2Mel(nn.Module):
         out_channels=out_dims,
         block_out_channels=block_out_channels,
         norm_num_groups=8,
-        cross_attention_dim = block_out_channels,
-        # cross_attention_dim = out_dims,
+        # cross_attention_dim = block_out_channels,
+        cross_attention_dim = out_dims,
         attention_head_dim = n_heads,
         #only_cross_attention = True,
         layers_per_block = n_layers,
-        # addition_embed_type='text',
+        addition_embed_type='text',
         resnet_time_scale_shift='scale_shift'), out_dims=out_dims)
 
     def forward(self, units, f0, volume, reference_audio_mel,aug_shift=None,
@@ -172,7 +136,7 @@ class Unit2Mel(nn.Module):
         if self.aug_shift_embed is not None and aug_shift is not None:
             x = x + self.aug_shift_embed(aug_shift / 5)
         # x = self.mrte(x, reference_audio_mel)
-        x = self.decoder(x, gt_spec=gt_spec, infer=infer, infer_speedup=infer_speedup, method=method, k_step=k_step,
+        x = self.decoder(x, gt_spec=gt_spec,reference_mel = reference_audio_mel, infer=infer, infer_speedup=infer_speedup, method=method, k_step=k_step,
                          use_tqdm=use_tqdm)
 
         return x
