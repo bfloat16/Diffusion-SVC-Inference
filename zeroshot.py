@@ -9,11 +9,14 @@ from tools.infer_tools import DiffusionSVC
 def generate_filename(input_wav, type):
    now = datetime.datetime.now()
    time = now.strftime("%Y_%m_%d_%H_%M_%S")
-   file_name = os.path.basename(input_wav).split('.')[0]
+   file_name = os.path.basename(input_wav).split('.')[0]   
+   if type == 'in':
+      output_file_name = f'{time}' + "_in_" + f'{file_name}' + ".mp3"
    if type == 'ref':
       output_file_name = f'{time}' + "_ref_" + f'{file_name}' + ".mp3"
-   else:
+   if type == 'out':
       output_file_name = f'{time}' + "_out_" + f'{file_name}' + ".mp3"
+
    output_file_path = os.path.join("results", output_file_name)
    return output_file_path
    
@@ -24,10 +27,10 @@ def inference(input_wav, reference_wav, key, threhold, speedup, menthod):
       in_wav, in_sr = librosa.load(input_wav, sr=None)
       in_refer, in_rsr = librosa.load(reference_wav, sr=None)
 
-      if int(len(in_wav)) <= int(in_sr * 180):
+      if int(len(in_wav)) <= int(in_sr * 300):
          in_wav = librosa.to_mono(in_wav)
       else:
-         raise gr.Error("输入音频长度不能超过3分钟")
+         raise gr.Error("输入音频长度不能超过5分钟")
       
       if int(len(in_refer)) > int(in_sr * 30):
          raise gr.Error("参考音频长度不能超过30秒")
@@ -35,16 +38,19 @@ def inference(input_wav, reference_wav, key, threhold, speedup, menthod):
       out_wav, out_sr = diffusion_svc.infer_from_long_audio(in_wav, sr=(in_sr, in_rsr), key=float(key), refer_audio=str(reference_wav), aug_shift=0, infer_speedup=int(speedup), 
                                                             method=menthod, use_tqdm=True, threhold=-60, threhold_for_split=float(threhold), min_len=5000)
 
-      output_wav_path = generate_filename(input_wav, 'out')
+      input_wav_path = generate_filename(input_wav, 'in')
       reference_wav_path = generate_filename(reference_wav, 'ref')
-    
-      sf.write(output_wav_path, out_wav, out_sr, format='mp3')
+      output_wav_path = generate_filename(input_wav, 'out')
+
+      sf.write(input_wav_path, in_wav, out_sr, format='mp3')
       sf.write(reference_wav_path, in_refer, out_sr, format='mp3')
+      sf.write(output_wav_path, out_wav, out_sr, format='mp3')
       return output_wav_path
 
 def main_ui():
    with gr.Blocks(theme=gr.themes.Base(primary_hue=gr.themes.colors.purple)) as ui:
       gr.Markdown('# Diffusion-SVC&nbsp;&nbsp;&nbsp;♬ヽ(*・ω・)ﾉ&nbsp;&nbsp;&nbsp;&nbsp;𝒁𝒆𝒓𝒐𝒔𝒉𝒐𝒕-Inference')
+      gr.Markdown("### 推理音频限制5分钟，参考音频限制30秒") 
       with gr.Row():
          input_wav = gr.Audio(type='filepath', label='推理音频', source='upload')
          reference_wav = gr.Audio(type='filepath', label='参考音频', source='upload')
@@ -59,12 +65,12 @@ def main_ui():
       out_wav = gr.Audio(label='输出音频', format='mp3',interactive=False)
       submit = gr.Button(value='开始推理', variant="primary")
 
-      submit.click(fn=inference,inputs=[input_wav, reference_wav, key, threhold, speedup, menthod], outputs=out_wav)
+      submit.click(inference, [input_wav, reference_wav, key, threhold, speedup, menthod], out_wav)
    ui.queue(status_update_rate=10, max_size=5)
-   ui.launch(server_name='0.0.0.0', server_port=2333, share=False)
+   ui.launch(server_name='0.0.0.0', server_port=2233, share=False)
 
 if __name__ == "__main__":
    device = 'cuda' if torch.cuda.is_available() else 'cpu'
    diffusion_svc = DiffusionSVC(device=device)
-   diffusion_svc.load_model(model_path='model_100000.pt', f0_model='fcpe', f0_max=1100, f0_min=50)
+   diffusion_svc.load_model(model_path='model_450000.pt', f0_model='fcpe', f0_max=1100, f0_min=50)
    main_ui()
