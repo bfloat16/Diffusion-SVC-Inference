@@ -2,8 +2,12 @@ import os
 import yaml
 import torch
 import torch.nn as nn
+import numpy as np
+import torch.nn.functional as F
+from torch.nn.utils import weight_norm
 from .diffusion import GaussianDiffusion
 from .vocoder import Vocoder
+from .naive.naive import Unit2MelNaive
 from .unet1d.unet_1d_condition import UNet1DConditionModel
 from .mrte_model import MRTE
 class DotDict(dict):
@@ -77,6 +81,30 @@ def load_svc_model(args, vocoder_dimension):
                     mrte_layer=args.model.mrte_layer,
                     mrte_hident_size=args.model.mrte_hident_size
                     )
+
+    elif args.model.type == 'Naive':
+        model = Unit2MelNaive(
+                args.data.encoder_out_channels,
+                args.model.n_spk,
+                args.model.use_pitch_aug,
+                vocoder_dimension,
+                args.model.n_layers,
+                args.model.n_chans,
+                use_speaker_encoder=args.model.use_speaker_encoder,
+                speaker_encoder_out_channels=args.data.speaker_encoder_out_channels)
+
+    elif args.model.type == 'NaiveFS':
+        model = Unit2MelNaive(
+            args.data.encoder_out_channels,
+            args.model.n_spk,
+            args.model.use_pitch_aug,
+            vocoder_dimension,
+            args.model.n_layers,
+            args.model.n_chans,
+            use_speaker_encoder=args.model.use_speaker_encoder,
+            speaker_encoder_out_channels=args.data.speaker_encoder_out_channels,
+            use_full_siren=True,
+            l2reg_loss=args.model.l2_reg_loss)
     else:
         raise ("Unknow model")
     return model

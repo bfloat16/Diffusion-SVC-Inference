@@ -2,6 +2,7 @@ from collections import deque
 from functools import partial
 from inspect import isfunction
 import torch.nn.functional as F
+import librosa.sequence
 import numpy as np
 import torch
 from torch import nn
