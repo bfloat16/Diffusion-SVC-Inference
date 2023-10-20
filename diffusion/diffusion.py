@@ -269,7 +269,7 @@ class GaussianDiffusion(nn.Module):
                 else:
                     for i in reversed(range(0, t)):
                         x = self.p_sample(x, torch.full((b,), i, device=device, dtype=torch.long), cond, reference_mel=reference_mel)
-            x = x.squeeze(1).transpose(1, 2)  # [B, T, M]
+            x = x.squeeze(1).transpose(1, 2)
             return self.denorm_spec(x)
 
     def norm_spec(self, x):

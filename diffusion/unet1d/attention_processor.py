@@ -12,32 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from typing import Callable, Optional, Union
-
 import torch
 import torch.nn.functional as F
 from torch import nn
-
 from .lora import LoRALinearLayer
-
 
 xformers = None
 
-
 class Attention(nn.Module):
-    r"""
-    A cross attention layer.
-
-    Parameters:
-        query_dim (`int`): The number of channels in the query.
-        cross_attention_dim (`int`, *optional*):
-            The number of channels in the encoder_hidden_states. If not given, defaults to `query_dim`.
-        heads (`int`,  *optional*, defaults to 8): The number of heads to use for multi-head attention.
-        dim_head (`int`,  *optional*, defaults to 64): The number of channels in each head.
-        dropout (`float`, *optional*, defaults to 0.0): The dropout probability to use.
-        bias (`bool`, *optional*, defaults to False):
-            Set to `True` for the query, key, and value linear layers to contain a bias parameter.
-    """
-
     def __init__(
         self,
         query_dim: int,
@@ -70,27 +52,16 @@ class Attention(nn.Module):
         self.rescale_output_factor = rescale_output_factor
         self.residual_connection = residual_connection
         self.dropout = dropout
-
-        # we make use of this private variable to know whether this class is loaded
-        # with an deprecated state dict so that we can convert it on the fly
         self._from_deprecated_attn_block = _from_deprecated_attn_block
-
         self.scale_qk = scale_qk
         self.scale = dim_head**-0.5 if self.scale_qk else 1.0
-
         self.heads = heads
-        # for slice_size > 0 the attention score computation
-        # is split across the batch axis to save memory
-        # You can set slice_size with `set_attention_slice`
         self.sliceable_head_dim = heads
-
         self.added_kv_proj_dim = added_kv_proj_dim
         self.only_cross_attention = only_cross_attention
 
         if self.added_kv_proj_dim is None and self.only_cross_attention:
-            raise ValueError(
-                "`only_cross_attention` can only be set to True if `added_kv_proj_dim` is not None. Make sure to set either `only_cross_attention=False` or define `added_kv_proj_dim`."
-            )
+            raise ValueError("`only_cross_attention` can only be set to True if `added_kv_proj_dim` is not None. Make sure to set either `only_cross_attention=False` or define `added_kv_proj_dim`.")
 
         if norm_num_groups is not None:
             self.group_norm = nn.GroupNorm(num_channels=query_dim, num_groups=norm_num_groups, eps=eps, affine=True)
@@ -108,27 +79,17 @@ class Attention(nn.Module):
             self.norm_cross = nn.LayerNorm(cross_attention_dim)
         elif cross_attention_norm == "group_norm":
             if self.added_kv_proj_dim is not None:
-                # The given `encoder_hidden_states` are initially of shape
-                # (batch_size, seq_len, added_kv_proj_dim) before being projected
-                # to (batch_size, seq_len, cross_attention_dim). The norm is applied
-                # before the projection, so we need to use `added_kv_proj_dim` as
-                # the number of channels for the group norm.
                 norm_cross_num_channels = added_kv_proj_dim
             else:
                 norm_cross_num_channels = cross_attention_dim
 
-            self.norm_cross = nn.GroupNorm(
-                num_channels=norm_cross_num_channels, num_groups=cross_attention_norm_num_groups, eps=1e-5, affine=True
-            )
+            self.norm_cross = nn.GroupNorm(num_channels=norm_cross_num_channels, num_groups=cross_attention_norm_num_groups, eps=1e-5, affine=True)
         else:
-            raise ValueError(
-                f"unknown cross_attention_norm: {cross_attention_norm}. Should be None, 'layer_norm' or 'group_norm'"
-            )
+            raise ValueError(f"unknown cross_attention_norm: {cross_attention_norm}. Should be None, 'layer_norm' or 'group_norm'")
 
         self.to_q = nn.Linear(query_dim, inner_dim, bias=bias)
 
         if not self.only_cross_attention:
-            # only relevant for the `AddedKVProcessor` classes
             self.to_k = nn.Linear(cross_attention_dim, inner_dim, bias=bias)
             self.to_v = nn.Linear(cross_attention_dim, inner_dim, bias=bias)
         else:
@@ -143,68 +104,27 @@ class Attention(nn.Module):
         self.to_out.append(nn.Linear(inner_dim, query_dim, bias=out_bias))
         self.to_out.append(nn.Dropout(dropout))
 
-        # set attention processor
-        # We use the AttnProcessor2_0 by default when torch 2.x is used which uses
-        # torch.nn.functional.scaled_dot_product_attention for native Flash/memory_efficient_attention
-        # but only if it has the default `scale` argument. TODO remove scale_qk check when we move to torch 2.1
         if processor is None:
-            processor = (
-                AttnProcessor2_0() if hasattr(F, "scaled_dot_product_attention") and self.scale_qk else AttnProcessor()
-            )
+            processor = (AttnProcessor2_0() if hasattr(F, "scaled_dot_product_attention") and self.scale_qk else AttnProcessor())
         self.set_processor(processor)
 
-    def set_use_memory_efficient_attention_xformers(
-        self, use_memory_efficient_attention_xformers: bool, attention_op: Optional[Callable] = None
-    ):
-        is_lora = hasattr(self, "processor") and isinstance(
-            self.processor,
-            LORA_ATTENTION_PROCESSORS,
-        )
-        is_custom_diffusion = hasattr(self, "processor") and isinstance(
-            self.processor, (CustomDiffusionAttnProcessor, CustomDiffusionXFormersAttnProcessor)
-        )
-        is_added_kv_processor = hasattr(self, "processor") and isinstance(
-            self.processor,
-            (
-                AttnAddedKVProcessor,
-                AttnAddedKVProcessor2_0,
-                SlicedAttnAddedKVProcessor,
-                XFormersAttnAddedKVProcessor,
-                LoRAAttnAddedKVProcessor,
-            ),
-        )
+    def set_use_memory_efficient_attention_xformers(self):
+        is_lora = hasattr(self, "processor") and isinstance(self.processor, LORA_ATTENTION_PROCESSORS)
+        is_custom_diffusion = hasattr(self, "processor") and isinstance(self.processor, (CustomDiffusionAttnProcessor, CustomDiffusionXFormersAttnProcessor))
 
         if is_lora:
-            attn_processor_class = (
-                LoRAAttnProcessor2_0 if hasattr(F, "scaled_dot_product_attention") else LoRAAttnProcessor
-            )
-            processor = attn_processor_class(
-                hidden_size=self.processor.hidden_size,
-                cross_attention_dim=self.processor.cross_attention_dim,
-                rank=self.processor.rank,
-            )
+            attn_processor_class = (LoRAAttnProcessor2_0 if hasattr(F, "scaled_dot_product_attention") else LoRAAttnProcessor)
+            processor = attn_processor_class(hidden_size=self.processor.hidden_size, cross_attention_dim=self.processor.cross_attention_dim, rank=self.processor.rank)
             processor.load_state_dict(self.processor.state_dict())
             processor.to(self.processor.to_q_lora.up.weight.device)
         elif is_custom_diffusion:
-            processor = CustomDiffusionAttnProcessor(
-                train_kv=self.processor.train_kv,
-                train_q_out=self.processor.train_q_out,
-                hidden_size=self.processor.hidden_size,
-                cross_attention_dim=self.processor.cross_attention_dim,
-            )
+            processor = CustomDiffusionAttnProcessor(train_kv=self.processor.train_kv, train_q_out=self.processor.train_q_out, hidden_size=self.processor.hidden_size, 
+                                                     cross_attention_dim=self.processor.cross_attention_dim)
             processor.load_state_dict(self.processor.state_dict())
             if hasattr(self.processor, "to_k_custom_diffusion"):
                 processor.to(self.processor.to_k_custom_diffusion.weight.device)
         else:
-            # set attention processor
-            # We use the AttnProcessor2_0 by default when torch 2.x is used which uses
-            # torch.nn.functional.scaled_dot_product_attention for native Flash/memory_efficient_attention
-            # but only if it has the default `scale` argument. TODO remove scale_qk check when we move to torch 2.1
-            processor = (
-                AttnProcessor2_0()
-                if hasattr(F, "scaled_dot_product_attention") and self.scale_qk
-                else AttnProcessor()
-            )
+            processor = (AttnProcessor2_0() if hasattr(F, "scaled_dot_product_attention") and self.scale_qk else AttnProcessor())
 
         self.set_processor(processor)
 
@@ -219,19 +139,11 @@ class Attention(nn.Module):
         elif self.added_kv_proj_dim is not None:
             processor = AttnAddedKVProcessor()
         else:
-            # set attention processor
-            # We use the AttnProcessor2_0 by default when torch 2.x is used which uses
-            # torch.nn.functional.scaled_dot_product_attention for native Flash/memory_efficient_attention
-            # but only if it has the default `scale` argument. TODO remove scale_qk check when we move to torch 2.1
-            processor = (
-                AttnProcessor2_0() if hasattr(F, "scaled_dot_product_attention") and self.scale_qk else AttnProcessor()
-            )
+            processor = (AttnProcessor2_0() if hasattr(F, "scaled_dot_product_attention") and self.scale_qk else AttnProcessor())
 
         self.set_processor(processor)
 
     def set_processor(self, processor: "AttnProcessor"):
-        # if current processor is in `self._modules` and if passed `processor` is not, we need to
-        # pop `processor` from `self._modules`
         if (
             hasattr(self, "processor")
             and isinstance(self.processor, torch.nn.Module)

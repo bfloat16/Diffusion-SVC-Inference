@@ -77,7 +77,7 @@ def main_ui():
 if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     diffusion_svc = DiffusionSVC(device=device)
-    diffusion_svc.load_model(model_path='model_230000.pt', f0_model='fcpe', f0_max=1100, f0_min=50)
+    diffusion_svc.load_model(model_path='model_240000.pt', f0_model='fcpe', f0_max=1100, f0_min=50)
     '''
     param_dict = dict()
     param_dict['use_timestamp'] = False
