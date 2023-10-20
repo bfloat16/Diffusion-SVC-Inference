@@ -591,7 +591,7 @@ class DPM_Solver:
             method=method, lower_order_final=lower_order_final, denoise_to_zero=denoise_to_zero, solver_type=solver_type,
             atol=atol, rtol=rtol, return_intermediate=return_intermediate)
 
-    def sample(self, x, steps=20, t_start=None, t_end=None, order=2, skip_type='time_uniform', progress=gr.Progress(track_tqdm=True),
+    def sample(self, x, steps=20, t_start=None, t_end=None, order=2, skip_type='time_uniform',
         method='multistep', lower_order_final=True, denoise_to_zero=False, solver_type='dpmsolver', atol=0.0078, rtol=0.05, return_intermediate=False):
         t_0 = 1. / self.noise_schedule.total_N if t_end is None else t_end
         t_T = self.noise_schedule.T if t_start is None else t_start

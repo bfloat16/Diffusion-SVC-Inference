@@ -4,8 +4,8 @@ import gradio as gr
 import librosa
 import soundfile as sf
 from datetime import datetime
-from modelscope.pipelines import pipeline
-from modelscope.utils.constant import Tasks
+#from modelscope.pipelines import pipeline
+#from modelscope.utils.constant import Tasks
 from tools.infer_tools import DiffusionSVC
 
 def generate_filename(input_wav, type):
@@ -35,9 +35,10 @@ def inference(input_wav, reference_wav, key, threhold, speedup, menthod, progres
 
     if int(len(in_refer)) > int(in_sr * 35):
         raise gr.Error("参考音频长度不能超过30秒")
+    print("====================================")
+    print(datetime.now().strftime("%Y-%m-%d %H_%M_%S"))
     #rec_result = inference_pipeline(audio_in=input_wav)
     #print(rec_result)
-    print(datetime.now().strftime("%Y-%m-%d %H_%M_%S"))
     out_wav, out_sr= diffusion_svc.infer_from_long_audio(in_wav, sr=(in_sr, in_rsr), key=float(key), refer_audio=str(reference_wav), aug_shift=0, infer_speedup=int(speedup),
                                                             method=menthod, use_tqdm=True, threhold=-60, threhold_for_split=float(threhold), min_len=5000)
 
@@ -76,7 +77,7 @@ def main_ui():
 if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     diffusion_svc = DiffusionSVC(device=device)
-    diffusion_svc.load_model(model_path='model_210000.pt', f0_model='fcpe', f0_max=1100, f0_min=50)
+    diffusion_svc.load_model(model_path='model_230000.pt', f0_model='fcpe', f0_max=1100, f0_min=50)
     '''
     param_dict = dict()
     param_dict['use_timestamp'] = False
