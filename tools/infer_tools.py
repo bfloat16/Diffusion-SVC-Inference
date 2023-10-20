@@ -2,10 +2,11 @@ import numpy as np
 import torch
 import torch.nn.functional
 import torchaudio
-from tqdm import tqdm
 from diffusion.unit2mel import load_model_vocoder
 from tools.slicer import split
 from tools.tools import F0_Extractor, Volume_Extractor, Units_Encoder, cross_fade
+import gradio as gr
+import tqdm
 
 
 class DiffusionSVC:
@@ -54,7 +55,7 @@ class DiffusionSVC:
         if ((self.model_path != model_path) or (self.f0_model != f0_model) or (self.f0_min != f0_min) or (self.f0_max != f0_max)):
             self.load_model(model_path, f0_model=f0_model, f0_min=f0_min, f0_max=f0_max)
 
-    def flush_f0_extractor(self, f0_model, f0_min=None, f0_max=None):
+    def flush_f0_extractor(self, f0_model):
         if (f0_model != self.f0_model) and (f0_model is not None):
             self.load_f0_extractor(f0_model)
 
@@ -126,7 +127,7 @@ class DiffusionSVC:
                           use_tqdm=use_tqdm)
 
     @torch.no_grad()
-    def infer(self, units, f0, volume, gt_spec=None, refer_spec = None, spk_mix_dict=None, aug_shift=0,
+    def infer(self, units, f0, volume, gt_spec=None, refer_spec = None, aug_shift=0,
               infer_speedup=10, method='dpm-solver', k_step=None, use_tqdm=True):
         if k_step is not None:
             assert gt_spec is not None
@@ -135,13 +136,12 @@ class DiffusionSVC:
         else:
             gt_spec = None
 
-        out_mel = self.__call__(units, f0, volume, refer_spec=refer_spec, aug_shift=aug_shift,
-                                gt_spec=gt_spec, infer_speedup=infer_speedup, method=method, k_step=k_step,
+        out_mel = self.__call__(units, f0, volume, refer_spec=refer_spec, aug_shift=aug_shift, gt_spec=gt_spec, infer_speedup=infer_speedup, method=method, k_step=k_step,
                                 use_tqdm=use_tqdm)
         return self.mel2wav(out_mel, f0)
 
     @torch.no_grad()
-    def infer_from_long_audio(self, audio, sr=(44100, 44100), key=0, refer_audio=None, aug_shift=0, infer_speedup=10, method='dpm-solver', 
+    def infer_from_long_audio(self, audio, sr=(44100, 44100), key=0, refer_audio=None, aug_shift=0, infer_speedup=10, method='dpm-solver',
                               k_step=None, use_tqdm=True, threhold=-60, threhold_for_split=-40, min_len=5000):
         in_sr,in_rsr = sr
         hop_size = self.args.data.block_size * in_sr / self.args.data.sampling_rate
@@ -149,10 +149,9 @@ class DiffusionSVC:
 
         f0 = self.extract_f0(audio, key=key, sr=in_sr)
         volume, mask = self.extract_volume_and_mask(audio, in_sr, threhold=float(threhold))
-        print(f" [INFO] method:{method}; infer_speedup:{infer_speedup}")
 
         refer_audio = torchaudio.load(refer_audio)[0].float().to(self.device)
-        
+
         if refer_audio.shape[0] == 2:
             refer_audio = torch.mean(refer_audio, dim=0, keepdim=True)
 
@@ -168,7 +167,7 @@ class DiffusionSVC:
 
         result = np.zeros(0)
         current_length = 0
-        for segment in tqdm(segments):
+        for segment in tqdm.tqdm(segments, desc="Processing Audio"):
             start_frame = segment[0]
             seg_input = torch.from_numpy(segment[1]).float().unsqueeze(0).to(self.device)
             seg_units = self.units_encoder.encode(seg_input, in_sr, hop_size)
@@ -178,8 +177,7 @@ class DiffusionSVC:
                 seg_gt_spec = gt_spec[:, start_frame: start_frame + seg_units.size(1), :]
             else:
                 seg_gt_spec = None
-            seg_output = self.infer(seg_units, seg_f0, seg_volume, gt_spec=seg_gt_spec, refer_spec = refer_spec,
-                                    aug_shift=aug_shift, infer_speedup=infer_speedup, method=method, k_step=k_step,
+            seg_output = self.infer(seg_units, seg_f0, seg_volume, gt_spec=seg_gt_spec, refer_spec = refer_spec, aug_shift=aug_shift, infer_speedup=infer_speedup, method=method, k_step=k_step,
                                     use_tqdm=use_tqdm)
             _left = start_frame * self.args.data.block_size
             _right = (start_frame + seg_units.size(1)) * self.args.data.block_size

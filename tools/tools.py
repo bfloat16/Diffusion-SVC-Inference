@@ -202,7 +202,6 @@ class Units_Encoder:
 class Audio2ContentVec768L12():
     def __init__(self, path, device='cpu'):
         self.device = device
-        print('[Loading] ' + path)
         self.models, self.saved_cfg, self.task = checkpoint_utils.load_model_ensemble_and_task([path], suffix="", )
         self.hubert = self.models[0]
         self.hubert = self.hubert.to(self.device)
